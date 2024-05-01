@@ -1,0 +1,9 @@
+Write an app to write simple notes
+  [X] Creating single notes
+      Note contains:
+        -name
+        -date
+        -tags
+        -content
+  [X] Saving and loading notes to separeted files
+  [ ] Create menu to view and open selected note

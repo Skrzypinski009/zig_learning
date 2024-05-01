@@ -1,0 +1,3 @@
+Write a program that:
+  will create an array of users and print them
+  save all of them to file
