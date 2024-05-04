@@ -1,10 +1,10 @@
 const std = @import("std");
 
 pub const Note = struct {
-    name: []u8,
-    timestamp: i64,
-    tags: []u8,
-    content: []u8,
+    name: []u8 = ""[0..],
+    timestamp: i64 = 0,
+    tags: []u8 = ""[0..],
+    content: []u8 = ""[0..],
 
     pub fn init(name: []u8, timestamp: i64, tags: []u8, content: []u8) Note {
         return Note{ .name = name, .timestamp = timestamp, .tags = tags, .content = content };
@@ -53,9 +53,13 @@ pub const Note = struct {
         unreachable;
     }
 
-    pub fn load(allocator: std.mem.Allocator, path: []const u8) !Note {
+    pub fn loadFromPath(allocator: std.mem.Allocator, path: []const u8) !Note {
         var file: std.fs.File = try std.fs.openFileAbsolute(path, .{ .mode = .read_only });
         defer file.close();
+        return try Note.loadFromFile(allocator, file);
+    }
+
+    pub fn loadFromFile(allocator: std.mem.Allocator, file: std.fs.File) !Note {
         const reader = file.reader();
 
         const file_content: []u8 = try reader.readAllAlloc(allocator, std.math.maxInt(usize));
@@ -86,7 +90,7 @@ pub const Note = struct {
         return Note.init(unical_name, timestamp, unical_tags, unical_content);
     }
 
-    pub fn free(self: Note, allocator: std.mem.Allocator) void {
+    pub fn free(self: *Note, allocator: std.mem.Allocator) void {
         allocator.free(self.name);
         allocator.free(self.tags);
         allocator.free(self.content);

@@ -6,4 +6,5 @@ Write an app to write simple notes
         -tags
         -content
   [X] Saving and loading notes to separeted files
+  [X] Create NoteManager to manage saving and loading notes
   [ ] Create menu to view and open selected note
