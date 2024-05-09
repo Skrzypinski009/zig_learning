@@ -32,7 +32,7 @@ pub fn main() !void {
     //
     // std.debug.print("{any}\n", .{@TypeOf(T)});
     // std.debug.print("notes: {any} \n", .{nm.notes});
-    var menu = Menu.init(allocator);
+    var menu = try Menu.init(allocator);
     defer menu.deinit();
     // try menu.createMainOptions();
     try menu.start();

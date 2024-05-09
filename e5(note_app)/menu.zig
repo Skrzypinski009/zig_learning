@@ -1,55 +1,65 @@
 const std = @import("std");
 const Note = @import("note.zig").Note;
 const Options = @import("options.zig").Options;
+const NoteManager = @import("note_manager.zig").NoteManager;
 
 pub const Menu = struct {
+    allocator: std.mem.Allocator,
+    note_manager: NoteManager,
+
+    create_note_options: Options,
+    view_notes_options: Options,
+
+    selected_note: usize = 0,
+
     const Views = enum {
         exit,
         main,
         create_note,
         view_notes,
+        selected_note,
     };
-
-    allocator: std.mem.Allocator,
-    main_options: Options,
-    create_note_options: Options,
 
     pub fn init(
         allocator: std.mem.Allocator,
-    ) Menu {
+    ) !Menu {
         const main_options = Options.init("New note;View notes"[0..], allocator);
-        const create_note_options = Options.init("Set Name;Set time"[0..], allocator);
-        const m = Menu{
+        const create_note_options = Options.init("Set Name;Set time;Set tags;Set content;Submit;Go back"[0..], allocator);
+        const view_notes_options = Options.init("New note;Select note;Change page;Exit"[0..], allocator);
+        var note_manager: NoteManager = NoteManager.init(allocator, "/home/marek/Dokumenty/zig/my_examples/e5(note_app)/notes/");
+        try note_manager.loadNotes();
+        return Menu{
             .allocator = allocator,
+            .note_manager = note_manager,
             .main_options = main_options,
             .create_note_options = create_note_options,
+            .view_notes_options = view_notes_options,
         };
-        return m;
     }
 
     pub fn deinit(self: *Menu) void {
         self.main_options.deinit();
         self.create_note_options.deinit();
+        self.note_manager.deinit();
     }
 
-    pub fn start(self: Menu) !void {
+    pub fn start(self: *Menu) !void {
         const stdout = std.io.getStdOut().writer();
         const stdin = std.io.getStdIn().reader();
 
-        // printOptions(stdout, self.test_options.*);
-
-        var view: Views = Views.main;
+        var view: Views = Views.view_notes;
         while (view != Views.exit) {
-            view = self.startView(view, stdout, stdin);
+            view = try self.startView(view, stdout, stdin);
         }
     }
 
-    // pub fn getOptionsByView(self: Menu, view: Views) ?[][]u8 {
-    //     return switch (view) {
-    //         Views.main => self.main_options,
-    //         else => null,
-    //     };
-    // }
+    pub fn startView(self: *Menu, view: Views, writer: anytype, reader: anytype) !Views {
+        return switch (view) {
+            Views.create_note => try self.createNoteView(writer, reader),
+            Views.view_notes => try self.viewNotesView(writer, reader),
+            else => Views.exit,
+        };
+    }
 
     pub fn anyMenuView(self: Menu, writer: anytype, reader: anytype, options: Options) !u8 {
         var choice: u8 = 0;
@@ -58,37 +68,118 @@ pub const Menu = struct {
         return choice;
     }
 
-    pub fn mainMenuView(self: Menu, writer: anytype, reader: anytype) !Views {
-        try clearConsole(writer);
-        const choice: u8 = try self.anyMenuView(writer, reader, self.main_options);
-        return switch (choice) {
-            1 => Views.create_note,
-            2 => Views.view_notes,
-            else => Views.main,
-        };
+    pub fn createNoteView(self: *Menu, writer: anytype, reader: anytype) !Views {
+        var note: Note = Note{};
+        var choice: u8 = 0;
+        while (true) {
+            try clearConsole(writer);
+            try note.print(writer);
+            choice = try self.anyMenuView(writer, reader, self.create_note_options);
+            switch (choice) {
+                1...4 => {
+                    const input = try self.getInput(reader);
+                    switch (choice) {
+                        1 => note.name = input,
+                        2 => note.timestamp = time: {
+                            const timestamp_int = try std.fmt.parseInt(i64, input, 10);
+                            self.allocator.free(input);
+                            break :time timestamp_int;
+                        },
+                        3 => note.tags = input,
+                        4 => note.content = input,
+                        else => {},
+                    }
+                },
+                5 => {
+                    if (note.isGood()) {
+                        if (self.note_manager.createNote(note)) {
+                            return Views.view_notes;
+                        } else |err| {
+                            try writer.print("Can't create note\n", .{});
+                            try writer.print("Error: {}\n", .{err});
+                            std.posix.nanosleep(2, 0);
+                        }
+                    } else {
+                        std.debug.print("Fill all fields to create a note!", .{});
+                        std.posix.nanosleep(2, 0);
+                    }
+                },
+                6 => return Views.view_notes,
+                else => {},
+            }
+        }
+        unreachable;
     }
 
-    // pub fn createNoteView(self: Menu, writer: anytype, reader: anytype) !Views {
-    //     clearConsole(writer);
-    //     var note: Note = Note{};
-    //     note.print(writer);
+    pub fn viewNotesView(self: *Menu, writer: anytype, reader: anytype) !Views {
+        var page: usize = 0;
+        var max_page: usize = self.note_manager.notes.len / 3;
+        if (self.note_manager.notes.len % 3 > 0) max_page += 1;
 
-    //     const choice: u8 = try self.anyMenuView(writer, reader, self.create_note_options);
-    // }
+        var note_idx: usize = 0;
+        const line = "------------------\n";
+        var choice: u8 = 0;
+        var end_idx: usize = 0;
 
-    pub fn startView(self: Menu, view: Views, writer: anytype, reader: anytype) Views {
-        return switch (view) {
-            Views.main => self.mainMenuView(writer, reader) catch Views.exit,
-            else => Views.exit,
-        };
+        while (true) {
+            // printing notes
+            note_idx = page * 3;
+            try clearConsole(writer);
+            const next_notes_len: usize = self.note_manager.notes.len;
+            end_idx = minUsize(next_notes_len - note_idx, 3);
+            for (0..end_idx) |i| {
+                try writer.print(line, .{});
+                try self.note_manager.notes[note_idx + i].print(writer);
+            }
+            try writer.print(line, .{});
+            try writer.print("   1..<{d}>..{d}\n", .{ page + 1, max_page });
+
+            // printing menu and getting choice
+            choice = try self.anyMenuView(writer, reader, self.view_notes_options);
+            switch (choice) {
+                1 => {
+                    return Views.create_note;
+                },
+                // selecting note
+                2 => {
+                    try writer.print("Enter the name of note: ", .{});
+                    const input = try self.getInput(reader);
+                    defer self.allocator.free(input);
+                    for (self.note_manager.notes, 0..) |note, i| {
+                        if (std.mem.eql(u8, note.name, input)) {
+                            self.selected_note = i;
+                            return Views.selected_note;
+                        }
+                    }
+                    try writer.print("There is no note with that name!\n", .{});
+                    std.posix.nanosleep(1, 0);
+                },
+                // changeing page
+                3 => {
+                    try writer.print("Enter the page number: ", .{});
+                    const page_choice = try self.getCharInput(reader);
+                    if (page_choice - 1 <= max_page) {
+                        page = page_choice - 1;
+                    } else {
+                        try writer.print("There is no page {d}!\n", .{page_choice});
+                        std.posix.nanosleep(1, 0);
+                    }
+                },
+                // exit
+                4 => return Views.exit,
+                else => {},
+            }
+        }
     }
 
     pub fn getInput(self: Menu, reader: anytype) ![]u8 {
         const buff: []u8 = try self.allocator.alloc(u8, 64);
         defer self.allocator.free(buff);
         if (try reader.readUntilDelimiterOrEof(buff, '\n')) |input| {
-            const inp: []u8 = try self.allocator.alloc(u8, input.len);
-            std.mem.copyForwards(u8, inp, input);
+            const input_len = if (input.len == 0) 1 else input.len;
+            const inp: []u8 = try self.allocator.alloc(u8, input_len);
+
+            std.mem.copyForwards(u8, inp, if (input.len == 0) " " else input);
             return inp;
         }
         unreachable;
@@ -105,51 +196,11 @@ pub const Menu = struct {
         unreachable;
     }
 
-    // MAIN  OPTIONS
-    // pub fn createMainOptions(self: *Menu) !void {
-    //     const op1_arr = "Create new note";
-    //     const op2_arr = "View notes";
-
-    //     const op1 = try self.allocator.alloc(u8, op1_arr.len);
-    //     const op2 = try self.allocator.alloc(u8, op2_arr.len);
-
-    //     self.main_options = try self.allocator.alloc([]u8, 2);
-    //     std.mem.copyForwards(u8, op1, op1_arr);
-    //     std.mem.copyForwards(u8, op2, op2_arr);
-    //     self.main_options[0] = op1;
-    //     self.main_options[1] = op2;
-    // }
-
-    // pub fn createCreateNoteOptions(self: *Menu) !void {
-    //     const op1_arr = "Set name";
-    //     const op2_arr = "Set date";
-    //     const op3_arr = "Set tags";
-    //     const op4_arr = "Set content";
-
-    //     const op1 = try self.allocator.alloc(u8, op1_arr.len);
-    //     const op2 = try self.allocator.alloc(u8, op2_arr.len);
-    //     const op3 = try self.allocator.alloc(u8, op3_arr.len);
-    //     const op4 = try self.allocator.alloc(u8, op4_arr.len);
-
-    //     self.create_note_options = try self.allocator.alloc([]u8, 2);
-    //     std.mem.copyForwards(u8, op1, op1_arr);
-    //     std.mem.copyForwards(u8, op2, op2_arr);
-    //     std.mem.copyForwards(u8, op3, op3_arr);
-    //     std.mem.copyForwards(u8, op4, op4_arr);
-    //     self.main_options[0] = op1;
-    //     self.main_options[1] = op2;
-    //     self.main_options[2] = op3;
-    //     self.main_options[3] = op4;
-    // }
-
-    // pub fn destroyMainOptions(self: *Menu) void {
-    //     for (self.main_options) |option| {
-    //         self.allocator.free(option);
-    //     }
-    //     self.allocator.free(self.main_options);
-    // }
-
     pub fn clearConsole(writer: anytype) !void {
         try writer.print("\x1B[2J\x1B[H", .{});
+    }
+
+    pub fn minUsize(a: usize, b: usize) usize {
+        return if (a < b) a else b;
     }
 };

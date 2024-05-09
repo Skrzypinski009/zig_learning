@@ -46,11 +46,11 @@ pub const NoteManager = struct {
         }
     }
 
-    pub fn setPathNoteName(self: NoteManager, name: []u8) []u8 {
+    pub fn getNoteFileName(self: NoteManager, name: []u8) ![]u8 {
         var new_name: []u8 = try self.allocator.alloc(u8, name.len);
         for (name, 0..) |char, i| {
-            if (std.ascii.isalphabetic(char) and std.ascii.isUpper(char)) {
-                new_name[i] = std.ascii.lower(char);
+            if (std.ascii.isAlphabetic(char) and std.ascii.isUpper(char)) {
+                new_name[i] = std.ascii.toLower(char);
             } else if (char == ' ') {
                 new_name[i] = '_';
             } else {
@@ -62,20 +62,20 @@ pub const NoteManager = struct {
 
     pub fn createNote(self: *NoteManager, new_note: Note) !void {
         for (self.notes) |note| {
-            if (note.name == new_note.name) {
+            if (std.mem.eql(u8, note.name, new_note.name)) {
                 return error.PathAlreadyExists;
             }
         }
         var dir = try std.fs.openDirAbsolute(self.notes_path, .{});
         defer dir.close();
 
-        const path_name: []u8 = self.setPathNoteName(new_note.name);
-        defer self.allocator.free(path_name);
+        const file_name: []u8 = try self.getNoteFileName(new_note.name);
+        defer self.allocator.free(file_name);
 
-        var file = dir.createFile(path_name, .{ .truncate = true });
-        defer file.close();
+        // var file = try dir.createFile(path_name, .{ .truncate = true });
+        // defer file.close();
 
-        new_note.save(self.notes_path);
-        self.addNote(new_note);
+        try new_note.save(self.notes_path, file_name);
+        try self.addNote(new_note);
     }
 };

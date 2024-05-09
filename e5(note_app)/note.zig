@@ -29,13 +29,20 @@ pub const Note = struct {
         try writer.print(fmt, .{ self.name, self.timestamp, self.tags, new_content });
     }
 
-    pub fn save(self: Note, path: []const u8) !void {
+    pub fn save(self: Note, dir_path: []const u8, file_name: []const u8) !void {
         // var file: std.fs.File = undefined;
         // file = std.fs.openFileAbsolute(path, .{ .mode = std.fs.File.OpenMode.write_only }) catch |err| switch (err) {
         //     error.FileNotFound => try std.fs.createFileAbsolute(path, .{}),
         //     else => return err,
         // };
-        var file: std.fs.File = try std.fs.createFileAbsolute(path, .{ .truncate = true });
+        const dir: std.fs.Dir = try std.fs.openDirAbsolute(dir_path, .{});
+        var file: std.fs.File = undefined;
+        if (dir.openFile(file_name, .{ .mode = .write_only })) |f| {
+            file = f;
+        } else |_| {
+            file = try dir.createFile(file_name, .{});
+        }
+        // var file: std.fs.File = try std.fs.createFileAbsolute(path, .{ .truncate = true });
         defer file.close();
         const writer = file.writer();
         try self.printRaw(writer);
@@ -94,5 +101,13 @@ pub const Note = struct {
         allocator.free(self.name);
         allocator.free(self.tags);
         allocator.free(self.content);
+    }
+
+    pub fn isGood(self: Note) bool {
+        if (self.name.len > 0 and
+            self.tags.len > 0 and
+            self.content.len > 0 and
+            self.timestamp > 0) return true;
+        return false;
     }
 };
